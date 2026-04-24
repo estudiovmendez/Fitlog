@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a0f1e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FitLog" />
+  <title>FitLog</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0f1e; font-family: system-ui, sans-serif; }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + ReactDOM + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+
+  <script type="text/babel" data-type="module">
+const { useState, useRef, useEffect, useCallback } = React;
+
+
+
+// ─── BIOMETRIC LOCK ───────────────────────────────────────────────
+function LockScreen({ onUnlock, darkMode }) {
+  const [status, setStatus] = useState("idle"); // idle | trying | error | noSupport
+  const [pin, setPin] = useState("");
+  const [pinMode, setPinMode] = useState(false);
+  const STORED_PIN = "1234"; // default PIN fallback
+
+  const tryBiometric = async () => {
+    setStatus("trying");
+    try {
+      if (!window.PublicKeyCredential) { setStatus("noSupport"); setPinMode(true); return; }
+      const supported = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!supported) { setStatus("noSupport"); setPinMode(true); return; }
+
+      // Use a simple credential get to trigger biometric prompt
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          timeout: 60000,
+          userVerification: "required",
+          rpId: window.location.hostname || "localhost",
+          allowCredentials: [],
+        }
+      });
+      onUnlock();
+    } catch (e) {
+      if (e.name === "NotAllowedError") { setStatus("error"); }
+      else { setStatus("noSupport"); setPinMode(true); }
+    }
+  };
+
+  const tryPin = () => {
+    if (pin === STORED_PIN) { onUnlock(); }
+    else { setStatus("pinError"); setPin(""); setTimeout(() => setStatus("idle"), 1500); }
+  };
+
+  const bg = darkMode
+    ? "linear-gradient(160deg,#0a0f1e 0%,#0f172a 60%,#0d1226 100%)"
+    : "linear-gradient(160deg,#f0f9ff 0%,#f8fafc 60%,#f0fdf4 100%)";
+  const C = darkMode ? COLORS_DARK : COLORS_LIGHT;
+
+  return (
+    <div style={{ minHeight: "100vh", background: bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 24px", fontFamily: "'DM Sans',system-ui,sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Syne:wght@800&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input::placeholder{color:#475569;}`}</style>
+
+      {/* Logo */}
+      <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "36px", fontWeight: 800, background: "linear-gradient(90deg,#fb923c,#a78bfa,#4ade80)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "8px" }}>FitLog</div>
+      <div style={{ color: C.faint, fontSize: "13px", marginBottom: "48px" }}>Tu asistente de salud personal</div>
+
+      {!pinMode ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "20px", width: "100%", maxWidth: "300px" }}>
+          {/* Fingerprint icon */}
+          <div style={{
+            width: "100px", height: "100px", borderRadius: "50%",
+            background: status === "trying" ? "rgba(167,139,250,0.2)" : status === "error" ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.06)",
+            border: `2px solid ${status === "trying" ? "#a78bfa" : status === "error" ? "#f87171" : "rgba(255,255,255,0.12)"}`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: "44px",
+            animation: status === "trying" ? "pulse 1s infinite" : "none",
+            cursor: "pointer", transition: "all 0.3s"
+          }} onClick={tryBiometric}>
+            {status === "error" ? "❌" : status === "trying" ? "⏳" : "👆"}
+          </div>
+
+          <div style={{ textAlign: "center" }}>
+            <div style={{ color: C.text, fontWeight: 600, fontSize: "16px", marginBottom: "6px" }}>
+              {status === "trying" ? "Verificando identidad..." : status === "error" ? "No se pudo verificar" : "Desbloqueá con huella o Face ID"}
+            </div>
+            <div style={{ color: C.faint, fontSize: "13px" }}>
+              {status === "error" ? "Intentá de nuevo o usá PIN" : "Tocá el ícono para continuar"}
+            </div>
+          </div>
+
+          <button onClick={tryBiometric} disabled={status === "trying"} style={{
+            width: "100%", background: "linear-gradient(135deg,#a78bfa,#818cf8)", border: "none",
+            borderRadius: "14px", padding: "14px", color: "white", fontWeight: 700,
+            fontSize: "16px", cursor: "pointer", opacity: status === "trying" ? 0.6 : 1
+          }}>
+            {status === "trying" ? "Verificando..." : "🔒 Desbloquear"}
+          </button>
+
+          <button onClick={() => setPinMode(true)} style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: "13px", textDecoration: "underline" }}>
+            Usar PIN en cambio
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px", width: "100%", maxWidth: "280px" }}>
+          <div style={{ fontSize: "40px" }}>🔢</div>
+          <div style={{ color: C.text, fontWeight: 600, fontSize: "16px" }}>Ingresá tu PIN</div>
+          <div style={{ color: C.faint, fontSize: "12px", textAlign: "center" }}>PIN por defecto: 1234<br/>(podés cambiarlo en Perfil)</div>
+
+          {/* PIN dots */}
+          <div style={{ display: "flex", gap: "12px", margin: "8px 0" }}>
+            {[0,1,2,3].map(i => (
+              <div key={i} style={{ width: "16px", height: "16px", borderRadius: "50%", background: pin.length > i ? "#a78bfa" : "transparent", border: `2px solid ${pin.length > i ? "#a78bfa" : C.faint}`, transition: "all 0.15s" }} />
+            ))}
+          </div>
+
+          {/* Numpad */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "10px", width: "100%" }}>
+            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k, i) => (
+              <button key={i} onClick={() => {
+                if (k === "⌫") setPin(p => p.slice(0,-1));
+                else if (k !== "" && pin.length < 4) { const np = pin + k; setPin(np); if (np.length === 4) setTimeout(() => { if (np === STORED_PIN) onUnlock(); else { setStatus("pinError"); setPin(""); setTimeout(() => setStatus("idle"), 1500); } }, 100); }
+              }} style={{
+                background: k === "" ? "transparent" : status === "pinError" ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.06)",
+                border: k === "" ? "none" : `1px solid ${status === "pinError" ? "rgba(248,113,113,0.4)" : C.border}`,
+                borderRadius: "12px", padding: "16px", color: C.text, fontSize: "20px",
+                fontWeight: 600, cursor: k === "" ? "default" : "pointer"
+              }}>{k}</button>
+            ))}
+          </div>
+
+          {status === "pinError" && <div style={{ color: "#f87171", fontSize: "13px" }}>PIN incorrecto. Intentá de nuevo.</div>}
+
+          <button onClick={() => setPinMode(false)} style={{ background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: "13px", textDecoration: "underline" }}>
+            ← Volver a biometría
+          </button>
+        </div>
+      )}
+
+      <div style={{ position: "absolute", bottom: "24px", left: 0, right: 0, textAlign: "center", color: C.vfaint, fontSize: "11px" }}>
+        🔒 Tus datos nunca salen de este dispositivo
+      </div>
+    </div>
+  );
+}
+
+
+const COLORS_DARK = {
+  bg: "#0a0f1e", surface: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)",
+  text: "#f1f5f9", muted: "#94a3b8", faint: "#64748b", vfaint: "#334155",
+  perfil: "#fb923c", sueno: "#818cf8", comidas: "#4ade80", ejercicio: "#60a5fa",
+  suplementos: "#f472b6", objetivos: "#facc15", recordatorios: "#34d399", consulta: "#a78bfa", graficos: "#e879f9",
+};
+const COLORS_LIGHT = {
+  bg: "#f8fafc", surface: "rgba(0,0,0,0.03)", border: "rgba(0,0,0,0.08)",
+  text: "#0f172a", muted: "#475569", faint: "#64748b", vfaint: "#cbd5e1",
+  perfil: "#ea580c", sueno: "#6366f1", comidas: "#16a34a", ejercicio: "#2563eb",
+  suplementos: "#db2777", objetivos: "#ca8a04", recordatorios: "#059669", consulta: "#7c3aed", graficos: "#c026d3",
+};
+
+const TAB_LABELS = {
+  perfil:"👤 Perfil", sueno:"😴 Sueño", comidas:"🥗 Comidas", ejercicio:"💪 Ejercicio",
+  suplementos:"💊 Suplementos", objetivos:"🎯 Objetivos", recordatorios:"🔔 Alertas",
+  graficos:"📈 Gráficos", consulta:"🤖 IA",
+};
+const CALIDAD_OPTIONS = [
+  {value:1,label:"😫 Muy malo"},{value:2,label:"😕 Malo"},{value:3,label:"😐 Regular"},
+  {value:4,label:"😊 Bueno"},{value:5,label:"😴 Excelente"},
+];
+const CATEGORIAS_REC = [
+  {value:"suplemento",label:"💊 Suplemento"},{value:"medicamento",label:"🏥 Medicamento"},
+  {value:"comida",label:"🥗 Comida"},{value:"ejercicio",label:"💪 Ejercicio"},
+  {value:"agua",label:"💧 Agua"},{value:"sueno",label:"😴 Dormir"},{value:"otro",label:"🔔 Otro"},
+];
+const DIAS_SEMANA = [
+  {short:"Do",num:1},{short:"Lu",num:2},{short:"Ma",num:3},{short:"Mi",num:4},
+  {short:"Ju",num:5},{short:"Vi",num:6},{short:"Sá",num:7},
+];
+
+function getDayKey(d=new Date()){return new Date(d).toISOString().split("T")[0];}
+function getLast(n){return Array.from({length:n},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(n-1-i));return getDayKey(d);});}
+function formatDate(d){return new Date(d).toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"});}
+function formatShort(d){return new Date(d).toLocaleDateString("es-AR",{day:"numeric",month:"short"});}
+function formatTime(d){return new Date(d).toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});}
+
+// ─── THEME CONTEXT ────────────────────────────────────────────────
+function useTheme(dark){return dark ? COLORS_DARK : COLORS_LIGHT;}
+
+// ─── MINI SPARKLINE ───────────────────────────────────────────────
+function Sparkline({values, color, height=32}){
+  const max=Math.max(...values,1);
+  const w=100,h=height;
+  const pts=values.map((v,i)=>`${(i/(values.length-1||1))*w},${h-Math.max((v/max)*h,1)}`).join(" ");
+  return(
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%",height}} preserveAspectRatio="none">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <polyline points={`0,${h} ${pts} ${w},${h}`} fill={color} fillOpacity="0.12" strokeWidth="0"/>
+    </svg>
+  );
+}
+
+// ─── BAR CHART ────────────────────────────────────────────────────
+function BarChart({data, color, labels, unit="", height=80}){
+  const max=Math.max(...data.map(d=>d||0),1);
+  return(
+    <div style={{display:"flex",gap:"4px",alignItems:"flex-end",height}}>
+      {data.map((v,i)=>(
+        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}}>
+          <div style={{fontSize:"9px",color:"#64748b",height:"14px",lineHeight:"14px"}}>{v>0?`${v}${unit}`:""}</div>
+          <div style={{
+            width:"100%",height:`${Math.max((v/max)*(height-20),v>0?4:0)}px`,
+            background:color,borderRadius:"4px 4px 2px 2px",
+            opacity:i===data.length-1?1:0.65,transition:"height 0.4s ease",minHeight:v>0?"4px":"0"
+          }}/>
+          <div style={{fontSize:"9px",color:"#475569"}}>{labels[i]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── ENTRY CARD ───────────────────────────────────────────────────
+function EntryCard({entry,color,onDelete,onRepeat,th}){
+  return(
+    <div style={{
+      background:th.surface,border:`1px solid ${color}33`,borderLeft:`3px solid ${color}`,
+      borderRadius:"12px",padding:"12px 14px",marginBottom:"10px",
+      display:"flex",justifyContent:"space-between",alignItems:"flex-start",animation:"fadeIn 0.3s ease"
+    }}>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:600,color:th.text,fontSize:"15px"}}>{entry.nombre}</div>
+        {entry.detalle&&<div style={{color:th.muted,fontSize:"13px",marginTop:"3px"}}>{entry.detalle}</div>}
+        <div style={{color:th.faint,fontSize:"12px",marginTop:"5px"}}>{formatTime(entry.hora)}</div>
+      </div>
+      <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+        {onRepeat&&(
+          <button onClick={()=>onRepeat(entry)} title="Agregar de nuevo" style={{
+            background:`${color}18`,border:`1px solid ${color}44`,borderRadius:"8px",
+            padding:"5px 9px",color,fontSize:"13px",cursor:"pointer"
+          }}>↩</button>
+        )}
+        <button onClick={()=>onDelete(entry.id)} style={{
+          background:"none",border:"none",color:th.faint,cursor:"pointer",fontSize:"20px",padding:"0 2px",lineHeight:1
+        }}>×</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADD FORM with frecuentes ─────────────────────────────────────
+function AddForm({tab,onAdd,frecuentes,th}){
+  const [nombre,setNombre]=useState("");
+  const [detalle,setDetalle]=useState("");
+  const C=useTheme(th==="dark");
+  const color=COLORS_DARK[tab];
+  const ph={
+    comidas:{nombre:"Ej: Avena con frutas",detalle:"Cantidad, calorías aprox..."},
+    ejercicio:{nombre:"Ej: Press de banca",detalle:"Series, repeticiones, tiempo..."},
+    suplementos:{nombre:"Ej: Creatina 5g",detalle:"Dosis, momento del día..."},
+  };
+  const submit=(n,d)=>{
+    const nm=(n||nombre).trim();
+    if(!nm)return;
+    onAdd({id:Date.now(),nombre:nm,detalle:(d||detalle).trim(),hora:new Date()});
+    if(!n){setNombre("");setDetalle("");}
+  };
+  const topFrec=(frecuentes||[]).filter(f=>f.tab===tab).slice(0,4);
+  return(
+    <div>
+      {topFrec.length>0&&(
+        <div style={{marginBottom:"14px"}}>
+          <div style={{color:C.faint,fontSize:"11px",marginBottom:"7px"}}>⚡ Frecuentes</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+            {topFrec.map((f,i)=>(
+              <button key={i} onClick={()=>submit(f.nombre,f.detalle)} style={{
+                background:`${color}15`,border:`1px solid ${color}44`,borderRadius:"20px",
+                padding:"6px 12px",color,fontSize:"12px",cursor:"pointer",fontWeight:500
+              }}>{f.nombre}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{background:C.surface,border:`1px solid ${color}44`,borderRadius:"16px",padding:"16px",marginBottom:"20px"}}>
+        <input value={nombre} onChange={e=>setNombre(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&submit()}
+          placeholder={ph[tab]?.nombre||"Nombre"}
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",
+            border:`1px solid ${color}55`,borderRadius:"10px",padding:"11px 14px",
+            color:C.text,fontSize:"15px",marginBottom:"10px",outline:"none",boxSizing:"border-box"}}/>
+        <input value={detalle} onChange={e=>setDetalle(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&submit()}
+          placeholder={ph[tab]?.detalle||"Detalle"}
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.03)",
+            border:`1px solid ${C.vfaint}`,borderRadius:"10px",padding:"10px 14px",
+            color:C.muted,fontSize:"13px",marginBottom:"12px",outline:"none",boxSizing:"border-box"}}/>
+        <button onClick={()=>submit()} style={{
+          width:"100%",background:color,border:"none",borderRadius:"10px",
+          padding:"12px",color:"#0f172a",fontWeight:700,fontSize:"15px",cursor:"pointer"
+        }}>+ Agregar</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── GRÁFICOS ─────────────────────────────────────────────────────
+function Graficos({historialDiario,historialSueno,perfil,th}){
+  const C=useTheme(th==="dark");
+  const dias30=getLast(30);
+  const dias7=getLast(7);
+
+  const suenoData=dias7.map(d=>historialSueno[d]?.horas||0);
+  const calidadData=dias7.map(d=>historialSueno[d]?.calidad||0);
+  const ejercicioData=dias7.map(d=>(historialDiario[d]?.ejercicio||[]).length);
+  const suplementosData=dias7.map(d=>(historialDiario[d]?.suplementos||[]).length);
+  const comidasData=dias7.map(d=>(historialDiario[d]?.comidas||[]).length);
+  const labels7=dias7.map(d=>new Date(d).toLocaleDateString("es-AR",{weekday:"short"}).slice(0,2));
+
+  const promSueno=suenoData.filter(v=>v>0).reduce((a,b,_,arr)=>a+b/arr.length,0);
+  const diasEj=ejercicioData.filter(v=>v>0).length;
+  const cumplSupl=suplementosData.filter(v=>v>0).length;
+
+  const Card=({title,children,color})=>(
+    <div style={{
+      background:C.surface,border:`1px solid ${color}33`,borderLeft:`3px solid ${color}`,
+      borderRadius:"14px",padding:"14px",marginBottom:"14px"
+    }}>
+      <div style={{color,fontWeight:700,fontSize:"13px",marginBottom:"10px"}}>{title}</div>
+      {children}
+    </div>
+  );
+
+  const Stat=({label,value,sub,color})=>(
+    <div style={{textAlign:"center",flex:1}}>
+      <div style={{fontSize:"22px",fontWeight:800,color}}>{value}</div>
+      <div style={{fontSize:"10px",color:C.faint,marginTop:"2px"}}>{label}</div>
+      {sub&&<div style={{fontSize:"10px",color:C.vfaint}}>{sub}</div>}
+    </div>
+  );
+
+  return(
+    <div style={{animation:"fadeIn 0.3s ease"}}>
+      <div style={{color:C.muted,fontSize:"12px",marginBottom:"14px"}}>Últimos 7 días</div>
+
+      <Card title="😴 Sueño" color="#818cf8">
+        <div style={{display:"flex",gap:"8px",marginBottom:"12px"}}>
+          <Stat label="prom. horas" value={promSueno?promSueno.toFixed(1)+"h":"—"} color="#818cf8"/>
+          <Stat label="noches reg." value={suenoData.filter(v=>v>0).length} color="#a5b4fc"/>
+          <Stat label="meta 7h+" value={suenoData.filter(v=>v>=7).length+"/7"} color={suenoData.filter(v=>v>=7).length>=5?"#4ade80":"#facc15"}/>
+        </div>
+        <BarChart data={suenoData} color="#818cf8" labels={labels7} unit="h" height={80}/>
+        <div style={{marginTop:"10px"}}>
+          <div style={{color:C.faint,fontSize:"11px",marginBottom:"4px"}}>Calidad</div>
+          <Sparkline values={calidadData} color="#a5b4fc" height={28}/>
+        </div>
+      </Card>
+
+      <Card title="💪 Ejercicio" color="#60a5fa">
+        <div style={{display:"flex",gap:"8px",marginBottom:"12px"}}>
+          <Stat label="días activos" value={diasEj} color="#60a5fa" sub="de 7"/>
+          <Stat label="consistencia" value={Math.round(diasEj/7*100)+"%"} color={diasEj>=4?"#4ade80":"#facc15"}/>
+        </div>
+        <BarChart data={ejercicioData} color="#60a5fa" labels={labels7} unit="" height={70}/>
+      </Card>
+
+      <Card title="🥗 Comidas registradas" color="#4ade80">
+        <div style={{marginBottom:"10px"}}>
+          <Sparkline values={comidasData} color="#4ade80" height={36}/>
+        </div>
+        <div style={{display:"flex",gap:"8px"}}>
+          <Stat label="prom. registros/día" value={(comidasData.reduce((a,b)=>a+b,0)/7).toFixed(1)} color="#4ade80"/>
+          <Stat label="días con registro" value={comidasData.filter(v=>v>0).length} color="#86efac" sub="de 7"/>
+        </div>
+      </Card>
+
+      <Card title="💊 Adherencia suplementos" color="#f472b6">
+        <div style={{display:"flex",gap:"8px",marginBottom:"12px"}}>
+          <Stat label="días tomados" value={cumplSupl} color="#f472b6" sub="de 7"/>
+          <Stat label="adherencia" value={Math.round(cumplSupl/7*100)+"%"} color={cumplSupl>=5?"#4ade80":"#facc15"}/>
+        </div>
+        <BarChart data={suplementosData} color="#f472b6" labels={labels7} unit="" height={70}/>
+      </Card>
+
+      {perfil.peso&&(
+        <div style={{
+          background:`${C.surface}`,border:"1px solid rgba(250,204,21,0.25)",
+          borderRadius:"14px",padding:"14px",marginBottom:"14px"
+        }}>
+          <div style={{color:"#facc15",fontWeight:700,fontSize:"13px",marginBottom:"8px"}}>⚖️ Datos actuales</div>
+          <div style={{display:"flex",gap:"12px"}}>
+            {perfil.peso&&<Stat label="peso" value={perfil.peso+"kg"} color="#facc15"/>}
+            {perfil.altura&&perfil.peso&&(
+              <Stat label="IMC" value={(perfil.peso/(perfil.altura/100)**2).toFixed(1)}
+                color={
+                  (perfil.peso/(perfil.altura/100)**2)<18.5?"#60a5fa":
+                  (perfil.peso/(perfil.altura/100)**2)<25?"#4ade80":
+                  (perfil.peso/(perfil.altura/100)**2)<30?"#facc15":"#f87171"
+                }/>
+            )}
+            {perfil.objetivo&&<div style={{flex:1,fontSize:"12px",color:C.muted,display:"flex",alignItems:"center"}}>🎯 {perfil.objetivo}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SUEÑO ────────────────────────────────────────────────────────
+function RegistroSueno({historialSueno,onGuardar,th}){
+  const C=useTheme(th==="dark");
+  const hoy=getDayKey();
+  const reg=historialSueno[hoy]||{};
+  const [horas,setHoras]=useState(reg.horas||"");
+  const [calidad,setCalidad]=useState(reg.calidad||0);
+  const [notas,setNotas]=useState(reg.notas||"");
+  const [ok,setOk]=useState(false);
+
+  const guardar=()=>{
+    if(!horas)return;
+    onGuardar(hoy,{horas:parseFloat(horas),calidad,notas,fecha:new Date()});
+    setOk(true);setTimeout(()=>setOk(false),2000);
+  };
+  const dias=getLast(7);
+  const dias30=getLast(30);
+  const promH=dias.filter(d=>historialSueno[d]?.horas).reduce((a,d,_,arr)=>a+historialSueno[d].horas/arr.filter(x=>historialSueno[x]?.horas).length,0);
+  const totalH7=dias.reduce((a,d)=>a+(historialSueno[d]?.horas||0),0);
+  const totalH30=dias30.reduce((a,d)=>a+(historialSueno[d]?.horas||0),0);
+  const diasReg30=dias30.filter(d=>historialSueno[d]?.horas).length;
+
+  return(
+    <div style={{animation:"fadeIn 0.3s ease"}}>
+      <div style={{background:th==="dark"?"rgba(129,140,248,0.08)":"rgba(99,102,241,0.07)",border:"1px solid rgba(129,140,248,0.3)",borderRadius:"16px",padding:"16px",marginBottom:"16px"}}>
+        <div style={{color:"#818cf8",fontWeight:700,fontSize:"14px",marginBottom:"14px"}}>😴 Registro de esta noche</div>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"4px"}}>Horas dormidas</label>
+        <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"14px"}}>
+          <input type="number" min="1" max="12" step="0.5" value={horas} onChange={e=>setHoras(e.target.value)}
+            placeholder="7.5"
+            style={{width:"90px",background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)",
+              border:"1px solid rgba(129,140,248,0.4)",borderRadius:"10px",padding:"10px 14px",
+              color:C.text,fontSize:"20px",fontWeight:700,outline:"none",textAlign:"center"}}/>
+          <span style={{color:C.faint}}>horas</span>
+          {horas&&<span style={{color:parseFloat(horas)>=7?"#4ade80":parseFloat(horas)>=6?"#facc15":"#f87171",fontSize:"13px",fontWeight:600}}>
+            {parseFloat(horas)>=7?"✅ Óptimo":parseFloat(horas)>=6?"⚠️ Regular":"❌ Insuficiente"}
+          </span>}
+        </div>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"8px"}}>Calidad</label>
+        <div style={{display:"flex",gap:"5px",marginBottom:"14px",flexWrap:"wrap"}}>
+          {CALIDAD_OPTIONS.map(op=>(
+            <button key={op.value} onClick={()=>setCalidad(op.value)} style={{
+              background:calidad===op.value?"rgba(129,140,248,0.25)":C.surface,
+              border:`1px solid ${calidad===op.value?"#818cf8":C.border}`,
+              borderRadius:"10px",padding:"7px 10px",
+              color:calidad===op.value?"#a5b4fc":C.faint,fontSize:"12px",cursor:"pointer"
+            }}>{op.label}</button>
+          ))}
+        </div>
+        <input value={notas} onChange={e=>setNotas(e.target.value)}
+          placeholder="Notas opcionales..."
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.03)",
+            border:`1px solid ${C.vfaint}`,borderRadius:"10px",padding:"10px 14px",
+            color:C.muted,fontSize:"13px",marginBottom:"12px",outline:"none",boxSizing:"border-box"}}/>
+        <button onClick={guardar} style={{
+          width:"100%",background:ok?"#4ade80":"#818cf8",border:"none",borderRadius:"10px",
+          padding:"12px",color:"#0f172a",fontWeight:700,fontSize:"15px",cursor:"pointer",transition:"background 0.3s"
+        }}>{ok?"✅ Guardado":"Guardar registro"}</button>
+      </div>
+
+      {dias.some(d=>historialSueno[d]?.horas)&&(
+        <div style={{background:th==="dark"?"rgba(129,140,248,0.06)":"rgba(99,102,241,0.05)",border:"1px solid rgba(129,140,248,0.15)",borderRadius:"16px",padding:"16px",marginBottom:"16px"}}>
+          <div style={{color:"#818cf8",fontWeight:700,fontSize:"13px",marginBottom:"12px"}}>📊 Resumen de sueño</div>
+
+          {/* Totales destacados */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px",marginBottom:"14px"}}>
+            {[
+              {label:"promedio/noche",val:promH?promH.toFixed(1)+"h":"—",color:"#a5b4fc"},
+              {label:"total 7 días",val:totalH7?totalH7.toFixed(1)+"h":"—",color:"#818cf8"},
+              {label:"total 30 días",val:totalH30?totalH30.toFixed(0)+"h":"—",color:"#6366f1"},
+            ].map(({label,val,color})=>(
+              <div key={label} style={{background:"rgba(129,140,248,0.1)",borderRadius:"12px",padding:"10px 8px",textAlign:"center"}}>
+                <div style={{fontSize:"18px",fontWeight:800,color}}>{val}</div>
+                <div style={{fontSize:"10px",color:C.faint,marginTop:"2px",lineHeight:"1.3"}}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:"flex",gap:"8px",marginBottom:"14px"}}>
+            <div style={{flex:1,background:"rgba(129,140,248,0.1)",borderRadius:"12px",padding:"10px",textAlign:"center"}}>
+              <div style={{fontSize:"18px",fontWeight:700,color:"#a5b4fc"}}>{dias.filter(d=>historialSueno[d]?.horas>=7).length}/7</div>
+              <div style={{fontSize:"10px",color:C.faint,marginTop:"2px"}}>noches con 7h+</div>
+            </div>
+            <div style={{flex:1,background:"rgba(129,140,248,0.1)",borderRadius:"12px",padding:"10px",textAlign:"center"}}>
+              <div style={{fontSize:"18px",fontWeight:700,color:promH>=7?"#4ade80":promH>=6?"#facc15":"#f87171"}}>
+                {promH>=7?"✅ Óptimo":promH>=6?"⚠️ Regular":promH>0?"❌ Bajo":"—"}
+              </div>
+              <div style={{fontSize:"10px",color:C.faint,marginTop:"2px"}}>estado semanal</div>
+            </div>
+            <div style={{flex:1,background:"rgba(129,140,248,0.1)",borderRadius:"12px",padding:"10px",textAlign:"center"}}>
+              <div style={{fontSize:"18px",fontWeight:700,color:"#a5b4fc"}}>{diasReg30}</div>
+              <div style={{fontSize:"10px",color:C.faint,marginTop:"2px"}}>días registrados (30d)</div>
+            </div>
+          </div>
+
+          <BarChart data={dias.map(d=>historialSueno[d]?.horas||0)} color="#818cf8"
+            labels={dias.map(d=>new Date(d).toLocaleDateString("es-AR",{weekday:"short"}).slice(0,2))} unit="h" height={80}/>
+
+          <div style={{marginTop:"10px",padding:"8px 12px",background:"rgba(129,140,248,0.08)",borderRadius:"10px",fontSize:"11px",color:C.faint}}>
+            💡 Adultos necesitan 7–9 horas por noche para una salud óptima <span style={{color:"#818cf8"}}>[National Sleep Foundation]</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PERFIL ───────────────────────────────────────────────────────
+function PerfilSalud({perfil,onChange,th}){
+  const C=useTheme(th==="dark");
+  const [nP,setNP]=useState(""); const [nM,setNM]=useState("");
+  const addP=()=>{if(!nP.trim())return;onChange({...perfil,patologias:[...(perfil.patologias||[]),nP.trim()]});setNP("");};
+  const remP=i=>{const a=[...(perfil.patologias||[])];a.splice(i,1);onChange({...perfil,patologias:a});};
+  const addM=()=>{if(!nM.trim())return;onChange({...perfil,medicamentos:[...(perfil.medicamentos||[]),nM.trim()]});setNM("");};
+  const remM=i=>{const a=[...(perfil.medicamentos||[])];a.splice(i,1);onChange({...perfil,medicamentos:a});};
+  const inp=extra=>({width:"100%",background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",border:`1px solid ${C.vfaint}`,borderRadius:"10px",padding:"10px 14px",color:C.text,fontSize:"14px",outline:"none",boxSizing:"border-box",...extra});
+
+  return(
+    <div style={{animation:"fadeIn 0.3s ease"}}>
+      <div style={{background:th==="dark"?"rgba(251,146,60,0.08)":"rgba(234,88,12,0.06)",border:"1px solid rgba(251,146,60,0.25)",borderRadius:"16px",padding:"16px",marginBottom:"16px"}}>
+        <div style={{color:"#fb923c",fontWeight:700,fontSize:"14px",marginBottom:"14px"}}>📋 Datos Personales</div>
+        {[{k:"nombre",l:"Nombre",p:"Tu nombre"},{k:"edad",l:"Edad",p:"Ej: 35"},{k:"peso",l:"Peso (kg)",p:"Ej: 75"},{k:"altura",l:"Altura (cm)",p:"Ej: 175"}].map(({k,l,p})=>(
+          <div key={k} style={{marginBottom:"10px"}}>
+            <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"4px"}}>{l}</label>
+            <input value={perfil[k]||""} onChange={e=>onChange({...perfil,[k]:e.target.value})} placeholder={p} style={inp()}/>
+          </div>
+        ))}
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"4px"}}>Objetivo principal</label>
+        <select value={perfil.objetivo||""} onChange={e=>onChange({...perfil,objetivo:e.target.value})}
+          style={{...inp(),background:th==="dark"?"#1e293b":"#f1f5f9"}}>
+          <option value="">Seleccioná un objetivo</option>
+          {["Bajar de peso","Ganar masa muscular","Mejorar resistencia","Mantener peso","Mejorar salud general","Rehabilitación"].map(o=><option key={o}>{o}</option>)}
+        </select>
+      </div>
+
+      {[{
+        title:"🏥 Patologías Preexistentes",hint:"La IA usará esto para detectar riesgos.",
+        list:perfil.patologias||[],val:nP,setVal:setNP,add:addP,rem:remP,
+        color:"#f87171",bg:"rgba(248,113,113,0.08)",brd:"rgba(248,113,113,0.25)",
+        ph:"Ej: Diabetes tipo 2, Hipertensión...",tc:"#fca5a5"
+      },{
+        title:"💊 Medicamentos Crónicos",hint:"Medicamentos de uso permanente.",
+        list:perfil.medicamentos||[],val:nM,setVal:setNM,add:addM,rem:remM,
+        color:"#f472b6",bg:"rgba(244,114,182,0.08)",brd:"rgba(244,114,182,0.25)",
+        ph:"Ej: Metformina 500mg, Enalapril...",tc:"#f9a8d4"
+      }].map(({title,hint,list,val,setVal,add,rem,color,bg,brd,ph,tc})=>(
+        <div key={title} style={{background:bg,border:`1px solid ${brd}`,borderRadius:"16px",padding:"16px",marginBottom:"16px"}}>
+          <div style={{color,fontWeight:700,fontSize:"14px",marginBottom:"4px"}}>{title}</div>
+          <div style={{color:C.faint,fontSize:"12px",marginBottom:"12px"}}>{hint}</div>
+          <div style={{display:"flex",gap:"8px",marginBottom:"12px"}}>
+            <input value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder={ph}
+              style={{flex:1,background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",border:`1px solid ${color}55`,borderRadius:"10px",padding:"10px 14px",color:C.text,fontSize:"14px",outline:"none"}}/>
+            <button onClick={add} style={{background:color,border:"none",borderRadius:"10px",padding:"10px 16px",color:"#0f172a",fontWeight:700,cursor:"pointer",fontSize:"16px"}}>+</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"8px"}}>
+            {list.map((p,i)=>(
+              <div key={i} style={{background:`${color}22`,border:`1px solid ${color}44`,borderRadius:"20px",padding:"6px 12px",fontSize:"13px",color:tc,display:"flex",alignItems:"center",gap:"8px"}}>
+                {p}<span onClick={()=>rem(i)} style={{cursor:"pointer",color,fontWeight:700}}>×</span>
+              </div>
+            ))}
+            {!list.length&&<div style={{color:C.vfaint,fontSize:"13px"}}>Sin datos cargados</div>}
+          </div>
+        </div>
+      ))}
+      <div style={{background:th==="dark"?"rgba(251,191,36,0.08)":"rgba(202,138,4,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:"12px",padding:"12px 14px",fontSize:"12px"}}>
+        🔒 <strong style={{color:"#fbbf24"}}>Tu privacidad:</strong> <span style={{color:"#a16207"}}>Todos tus datos y fotos se guardan solo en este dispositivo. Nunca se suben a internet.</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── OBJETIVOS ────────────────────────────────────────────────────
+function Objetivos({objetivos,onAdd,onDelete,onAddPhoto,th}){
+  const C=useTheme(th==="dark");
+  const [titulo,setTitulo]=useState(""); const [desc,setDesc]=useState("");
+  const [expanded,setExpanded]=useState(null);
+  const fileRef=useRef(null); const [pt,setPt]=useState(null);
+  const submit=()=>{if(!titulo.trim())return;onAdd({id:Date.now(),titulo:titulo.trim(),descripcion:desc.trim(),progreso:[],fecha:new Date()});setTitulo("");setDesc("");};
+  const handlePhoto=e=>{
+    const f=e.target.files[0];if(!f||!pt)return;
+    const r=new FileReader();r.onload=ev=>onAddPhoto(pt,{id:Date.now(),dataUrl:ev.target.result,fecha:new Date()});
+    r.readAsDataURL(f);e.target.value="";
+  };
+  return(
+    <div style={{animation:"fadeIn 0.3s ease"}}>
+      <input type="file" ref={fileRef} accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}}/>
+      <div style={{background:th==="dark"?"rgba(250,204,21,0.08)":"rgba(202,138,4,0.06)",border:"1px solid rgba(250,204,21,0.25)",borderRadius:"16px",padding:"16px",marginBottom:"20px"}}>
+        <input value={titulo} onChange={e=>setTitulo(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+          placeholder="Ej: Bajar 5kg, Correr 5km, Ganar masa..."
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",border:"1px solid rgba(250,204,21,0.4)",borderRadius:"10px",padding:"11px 14px",color:C.text,fontSize:"15px",marginBottom:"10px",outline:"none",boxSizing:"border-box"}}/>
+        <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Meta específica (opcional)"
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.03)",border:`1px solid ${C.vfaint}`,borderRadius:"10px",padding:"10px 14px",color:C.muted,fontSize:"13px",marginBottom:"12px",outline:"none",boxSizing:"border-box"}}/>
+        <button onClick={submit} style={{width:"100%",background:"#facc15",border:"none",borderRadius:"10px",padding:"12px",color:"#0f172a",fontWeight:700,fontSize:"15px",cursor:"pointer"}}>🎯 Crear Objetivo</button>
+      </div>
+      {objetivos.length===0?(
+        <div style={{textAlign:"center",color:C.vfaint,paddingTop:"20px"}}>
+          <div style={{fontSize:"40px",marginBottom:"10px"}}>🎯</div>
+          <div style={{fontSize:"14px"}}>Creá tu primer objetivo con seguimiento de fotos</div>
+        </div>
+      ):objetivos.map(obj=>(
+        <div key={obj.id} style={{background:C.surface,border:"1px solid rgba(250,204,21,0.2)",borderLeft:"3px solid #facc15",borderRadius:"14px",marginBottom:"14px",overflow:"hidden",animation:"fadeIn 0.3s ease"}}>
+          <div onClick={()=>setExpanded(expanded===obj.id?null:obj.id)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,color:C.text,fontSize:"15px"}}>{obj.titulo}</div>
+              {obj.descripcion&&<div style={{color:C.faint,fontSize:"12px",marginTop:"2px"}}>{obj.descripcion}</div>}
+              <div style={{color:C.faint,fontSize:"11px",marginTop:"4px"}}>📷 {obj.progreso.length} foto{obj.progreso.length!==1?"s":""} · desde {formatShort(obj.fecha)}</div>
+            </div>
+            <div style={{display:"flex",gap:"8px",marginLeft:"10px"}}>
+              <button onClick={e=>{e.stopPropagation();setPt(obj.id);setTimeout(()=>fileRef.current?.click(),50);}}
+                style={{background:"rgba(250,204,21,0.15)",border:"1px solid rgba(250,204,21,0.4)",borderRadius:"8px",padding:"7px 12px",color:"#facc15",fontSize:"13px",cursor:"pointer",fontWeight:600}}>📷</button>
+              <button onClick={e=>{e.stopPropagation();onDelete(obj.id);}} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:"20px"}}>×</button>
+            </div>
+          </div>
+          {expanded===obj.id&&(
+            <div style={{padding:"0 16px 16px"}}>
+              {obj.progreso.length===0?(
+                <div style={{textAlign:"center",padding:"20px",color:C.faint,fontSize:"13px",border:`1px dashed ${C.vfaint}`,borderRadius:"10px"}}>
+                  <div style={{fontSize:"28px",marginBottom:"8px"}}>📷</div>
+                  Tocá 📷 para registrar tu progreso.<br/>
+                  <span style={{fontSize:"11px",color:C.vfaint}}>🔒 Las fotos se guardan solo en tu dispositivo.</span>
+                </div>
+              ):(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"6px"}}>
+                  {obj.progreso.map(foto=>(
+                    <div key={foto.id} style={{position:"relative",borderRadius:"10px",overflow:"hidden"}}>
+                      <img src={foto.dataUrl} alt="progreso" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}}/>
+                      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"4px 6px",fontSize:"10px",color:"#cbd5e1"}}>{formatShort(foto.fecha)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── RECORDATORIOS ────────────────────────────────────────────────
+function Recordatorios({recordatorios,onAdd,onDelete,onToggle,th}){
+  const C=useTheme(th==="dark");
+  const [nombre,setNombre]=useState(""); const [cat,setCat]=useState("suplemento");
+  const [hora,setHora]=useState("08:00"); const [dias,setDias]=useState([2,3,4,5,6]);
+  const [res,setRes]=useState(null);
+  const toggleDia=n=>setDias(prev=>prev.includes(n)?prev.filter(d=>d!==n):[...prev,n]);
+  const crear=()=>{
+    if(!nombre.trim()||dias.length===0)return;
+    onAdd({id:Date.now(),nombre:nombre.trim(),categoria:cat,hora,dias,activo:true,creadoEn:new Date()});
+    setNombre(""); setRes("ok"); setTimeout(()=>setRes(null),2500);
+  };
+  const diasLabel=ds=>{
+    if(ds.length===7)return"Todos los días";
+    if(JSON.stringify([...ds].sort())==="[2,3,4,5,6]")return"Lun – Vie";
+    if(JSON.stringify([...ds].sort())==="[1,7]")return"Fin de semana";
+    return ds.map(n=>DIAS_SEMANA.find(d=>d.num===n)?.short).join(", ");
+  };
+  const catInfo=v=>CATEGORIAS_REC.find(c=>c.value===v);
+  return(
+    <div style={{animation:"fadeIn 0.3s ease"}}>
+      <div style={{background:th==="dark"?"rgba(52,211,153,0.07)":"rgba(5,150,105,0.06)",border:"1px solid rgba(52,211,153,0.25)",borderRadius:"16px",padding:"16px",marginBottom:"20px"}}>
+        <div style={{color:"#34d399",fontWeight:700,fontSize:"14px",marginBottom:"14px"}}>🔔 Nuevo Recordatorio</div>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"6px"}}>Categoría</label>
+        <div style={{display:"flex",flexWrap:"wrap",gap:"6px",marginBottom:"14px"}}>
+          {CATEGORIAS_REC.map(c=>(
+            <button key={c.value} onClick={()=>setCat(c.value)} style={{
+              background:cat===c.value?"rgba(52,211,153,0.2)":C.surface,
+              border:`1px solid ${cat===c.value?"#34d399":C.border}`,
+              borderRadius:"20px",padding:"6px 12px",
+              color:cat===c.value?"#34d399":C.faint,fontSize:"12px",cursor:"pointer"
+            }}>{c.label}</button>
+          ))}
+        </div>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"4px"}}>Nombre</label>
+        <input value={nombre} onChange={e=>setNombre(e.target.value)} onKeyDown={e=>e.key==="Enter"&&crear()}
+          placeholder={cat==="suplemento"?"Ej: Creatina, Vitamina D...":cat==="agua"?"Ej: Tomar 2 vasos":"Nombre del recordatorio"}
+          style={{width:"100%",background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",border:"1px solid rgba(52,211,153,0.35)",borderRadius:"10px",padding:"11px 14px",color:C.text,fontSize:"15px",marginBottom:"14px",outline:"none",boxSizing:"border-box"}}/>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"4px"}}>Hora</label>
+        <input type="time" value={hora} onChange={e=>setHora(e.target.value)}
+          style={{background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",border:"1px solid rgba(52,211,153,0.35)",borderRadius:"10px",padding:"10px 14px",color:C.text,fontSize:"18px",fontWeight:700,outline:"none",marginBottom:"14px",colorScheme:th==="dark"?"dark":"light"}}/>
+        <label style={{color:C.muted,fontSize:"12px",display:"block",marginBottom:"8px"}}>Días</label>
+        <div style={{display:"flex",gap:"5px",marginBottom:"10px"}}>
+          {DIAS_SEMANA.map(d=>(
+            <button key={d.num} onClick={()=>toggleDia(d.num)} style={{
+              flex:1,padding:"8px 0",
+              background:dias.includes(d.num)?"rgba(52,211,153,0.2)":C.surface,
+              border:`1px solid ${dias.includes(d.num)?"#34d399":C.border}`,
+              borderRadius:"8px",color:dias.includes(d.num)?"#34d399":C.faint,
+              fontSize:"11px",fontWeight:dias.includes(d.num)?700:400,cursor:"pointer"
+            }}>{d.short}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:"6px",marginBottom:"14px"}}>
+          {[{l:"Todos",d:[1,2,3,4,5,6,7]},{l:"Lun-Vie",d:[2,3,4,5,6]},{l:"Finde",d:[1,7]}].map(({l,d})=>(
+            <button key={l} onClick={()=>setDias(d)} style={{flex:1,padding:"7px 4px",background:JSON.stringify([...dias].sort())===JSON.stringify([...d].sort())?"rgba(52,211,153,0.15)":C.surface,border:"1px solid rgba(52,211,153,0.25)",borderRadius:"8px",color:"#34d399",fontSize:"11px",cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+        <button onClick={crear} disabled={!nombre.trim()||dias.length===0} style={{
+          width:"100%",background:"linear-gradient(135deg,#34d399,#10b981)",border:"none",borderRadius:"10px",
+          padding:"13px",color:"#0f172a",fontWeight:700,fontSize:"15px",cursor:"pointer",
+          opacity:(!nombre.trim()||dias.length===0)?0.5:1
+        }}>🔔 Programar recordatorio</button>
+        {res&&<div style={{marginTop:"10px",background:"rgba(52,211,153,0.12)",border:"1px solid rgba(52,211,153,0.3)",borderRadius:"10px",padding:"10px 14px",fontSize:"13px",color:"#6ee7b7"}}>✅ Recordatorio guardado correctamente.</div>}
+      </div>
+
+      {recordatorios.length===0?(
+        <div style={{textAlign:"center",color:C.vfaint,paddingTop:"20px"}}>
+          <div style={{fontSize:"40px",marginBottom:"10px"}}>🔔</div>
+          <div style={{fontSize:"14px"}}>Sin recordatorios todavía</div>
+        </div>
+      ):(
+        <>
+          <div style={{color:C.faint,fontSize:"12px",marginBottom:"10px"}}>{recordatorios.filter(r=>r.activo).length} activo{recordatorios.filter(r=>r.activo).length!==1?"s":""} de {recordatorios.length}</div>
+          {recordatorios.map(r=>{
+            const ci=catInfo(r.categoria);
+            return(
+              <div key={r.id} style={{
+                background:C.surface,border:`1px solid ${r.activo?"rgba(52,211,153,0.25)":C.border}`,
+                borderLeft:`3px solid ${r.activo?"#34d399":C.vfaint}`,borderRadius:"12px",
+                padding:"14px 16px",marginBottom:"10px",display:"flex",justifyContent:"space-between",
+                alignItems:"center",opacity:r.activo?1:0.5,animation:"fadeIn 0.3s ease"
+              }}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                    <span style={{fontSize:"18px"}}>{ci?.label.split(" ")[0]}</span>
+                    <span style={{fontWeight:600,color:C.text,fontSize:"15px"}}>{r.nombre}</span>
+                  </div>
+                  <div style={{color:C.faint,fontSize:"13px",marginTop:"4px",display:"flex",gap:"12px"}}>
+                    <span>🕐 {r.hora}</span>
+                    <span>📅 {diasLabel(r.dias)}</span>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:"8px",marginLeft:"10px"}}>
+                  <button onClick={()=>onToggle(r.id)} style={{background:r.activo?"rgba(52,211,153,0.15)":C.surface,border:`1px solid ${r.activo?"rgba(52,211,153,0.4)":C.border}`,borderRadius:"20px",padding:"5px 12px",color:r.activo?"#34d399":C.faint,fontSize:"12px",cursor:"pointer",fontWeight:600}}>{r.activo?"ON":"OFF"}</button>
+                  <button onClick={()=>onDelete(r.id)} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:"20px"}}>×</button>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── EXPORT PDF ───────────────────────────────────────────────────
+function exportarPDF(perfil,historialDiario,historialSueno,objetivos){
+  const dias7=getLast(7);
+  const lines=[];
+  lines.push("VITALOG — REPORTE SEMANAL");
+  lines.push("=".repeat(40));
+  lines.push(`Generado: ${formatDate(new Date())}`);
+  if(perfil.nombre) lines.push(`Usuario: ${perfil.nombre}`);
+  if(perfil.peso) lines.push(`Peso: ${perfil.peso} kg | Altura: ${perfil.altura||"—"} cm`);
+  if(perfil.objetivo) lines.push(`Objetivo: ${perfil.objetivo}`);
+  if((perfil.patologias||[]).length) lines.push(`Patologías: ${perfil.patologias.join(", ")}`);
+  if((perfil.medicamentos||[]).length) lines.push(`Medicamentos: ${perfil.medicamentos.join(", ")}`);
+  lines.push("");lines.push("REGISTRO SEMANAL");lines.push("-".repeat(40));
+  dias7.forEach(d=>{
+    const dia=historialDiario[d]; const sue=historialSueno[d];
+    if(!dia&&!sue)return;
+    lines.push(`\n${formatShort(d).toUpperCase()}`);
+    if(sue) lines.push(`  😴 Sueño: ${sue.horas}h — ${CALIDAD_OPTIONS.find(o=>o.value===sue.calidad)?.label||""}${sue.notas?` (${sue.notas})`:""}`);
+    if(dia?.comidas?.length) lines.push(`  🥗 Comidas: ${dia.comidas.map(c=>c.nombre).join(", ")}`);
+    if(dia?.ejercicio?.length) lines.push(`  💪 Ejercicio: ${dia.ejercicio.map(e=>e.nombre).join(", ")}`);
+    if(dia?.suplementos?.length) lines.push(`  💊 Suplementos: ${dia.suplementos.map(s=>s.nombre).join(", ")}`);
+  });
+  if(objetivos.length){
+    lines.push("");lines.push("OBJETIVOS");lines.push("-".repeat(40));
+    objetivos.forEach(o=>lines.push(`🎯 ${o.titulo}${o.descripcion?` — ${o.descripcion}`:""} (${o.progreso.length} fotos)`));
+  }
+  lines.push("");lines.push("-".repeat(40));
+  lines.push("⚠️ Este reporte es orientativo y no reemplaza la consulta médica profesional.");
+
+  const text=lines.join("\n");
+  const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=`FitLog_${getDayKey()}.txt`;a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── CHAT IA ──────────────────────────────────────────────────────
+function renderMsg(text){
+  return text.split(/(\[Fuente:[^\]]+\])/g).map((p,i)=>
+    p.startsWith("[Fuente:")?(
+      <span key={i} style={{display:"inline-block",background:"rgba(96,165,250,0.15)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:"6px",padding:"1px 7px",fontSize:"11px",color:"#93c5fd",margin:"0 2px",fontStyle:"italic"}}>🔗 {p.slice(1,-1)}</span>
+    ):<span key={i}>{p}</span>
+  );
+}
+
+function ChatIA({data,perfil,historialSueno,historialDiario,th,preload,onClearPreload}){
+  const C=useTheme(th==="dark");
+  const [messages,setMessages]=useState([{role:"assistant",text:"¡Hola! Tengo acceso a tu perfil completo, sueño y registros de la semana.\n\nPodés pedirme:\n• ⚠️ Analizar interacciones suplementos × patologías × medicamentos\n• 📊 Resumen semanal con análisis completo\n• 😴 Análisis de tu sueño\n• 🥗 Recomendaciones de alimentación\n\nTodas mis respuestas incluyen fuentes citadas. ¿En qué te ayudo?"}]);
+  const [input,setInput]=useState(""); const [loading,setLoading]=useState(false);
+  const bottomRef=useRef(null);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
+
+  // Auto-enviar mensaje pre-cargado desde otra sección
+  useEffect(()=>{
+    if(preload){
+      send(preload);
+      onClearPreload?.();
+    }
+  },[preload]);
+
+  const ctx=useCallback(()=>{
+    const l=[];
+    if(perfil.nombre)l.push(`Usuario: ${perfil.nombre}`);
+    if(perfil.edad)l.push(`Edad: ${perfil.edad} años`);
+    if(perfil.peso)l.push(`Peso: ${perfil.peso} kg`);
+    if(perfil.altura)l.push(`Altura: ${perfil.altura} cm`);
+    if(perfil.objetivo)l.push(`Objetivo: ${perfil.objetivo}`);
+    if((perfil.patologias||[]).length)l.push(`PATOLOGÍAS: ${perfil.patologias.join(", ")}`);
+    if((perfil.medicamentos||[]).length)l.push(`MEDICAMENTOS CRÓNICOS: ${perfil.medicamentos.join(", ")}`);
+    const hoy=getDayKey(); const sue=historialSueno[hoy];
+    if(sue){const c=CALIDAD_OPTIONS.find(o=>o.value===sue.calidad);l.push(`\nSUEÑO HOY: ${sue.horas}h, calidad: ${c?.label||"—"}${sue.notas?`, notas: ${sue.notas}`:""}`)}
+    const dias7=getLast(7);
+    const sueS=dias7.filter(d=>historialSueno[d]?.horas).map(d=>{const r=historialSueno[d];const c=CALIDAD_OPTIONS.find(o=>o.value===r.calidad);return`${formatShort(d)}: ${r.horas}h (${c?.label.split(" ")[1]||"—"})`;});
+    if(sueS.length)l.push(`SUEÑO SEMANA:\n${sueS.join("\n")}`);
+    dias7.forEach(d=>{const dia=historialDiario[d];if(!dia)return;const items=[];
+      if(dia.comidas?.length)items.push(`comidas: ${dia.comidas.map(c=>c.nombre).join(", ")}`);
+      if(dia.ejercicio?.length)items.push(`ejercicio: ${dia.ejercicio.map(e=>e.nombre).join(", ")}`);
+      if(dia.suplementos?.length)items.push(`suplementos: ${dia.suplementos.map(s=>s.nombre).join(", ")}`);
+      if(items.length)l.push(`\n${formatShort(d)}: ${items.join(" | ")}`);
+    });
+    if(data.comidas.length){l.push("\nCOMIDAS HOY:");data.comidas.forEach(c=>l.push(`- ${c.nombre}${c.detalle?` (${c.detalle})`:""}`))}
+    if(data.ejercicio.length){l.push("\nEJERCICIO HOY:");data.ejercicio.forEach(e=>l.push(`- ${e.nombre}${e.detalle?` (${e.detalle})`:""}`))}
+    if(data.suplementos.length){l.push("\nSUPLEMENTOS HOY:");data.suplementos.forEach(s=>l.push(`- ${s.nombre}${s.detalle?` (${s.detalle})`:""}`))}
+    return l.join("\n")||"Sin datos cargados aún.";
+  },[data,perfil,historialSueno,historialDiario]);
+
+  const send=async(ov)=>{
+    const msg=(ov||input).trim();if(!msg||loading)return;
+    setInput(""); setMessages(prev=>[...prev,{role:"user",text:msg}]); setLoading(true);
+    try{
+      const sys=`Eres un asistente de salud y bienestar experto y empático. Perfil del usuario:\n\n${ctx()}\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Respondé en español argentino, claro y amigable.\n2. CITAS DE FUENTES — OBLIGATORIO EN CADA AFIRMACIÓN:\n   - Cada vez que menciones un dato, recomendación, rango, interacción o hecho de salud, DEBES agregar inmediatamente la fuente entre corchetes.\n   - Formato: [Fuente: Nombre completo de la institución o publicación]\n   - Fuentes aceptadas (usá las más relevantes para cada tema):\n     Sueño: [Fuente: National Sleep Foundation], [Fuente: American Academy of Sleep Medicine]\n     Nutrición: [Fuente: Harvard T.H. Chan School of Public Health], [Fuente: OMS — Organización Mundial de la Salud], [Fuente: FAO]\n     Ejercicio: [Fuente: American College of Sports Medicine], [Fuente: OMS — Guías de Actividad Física]\n     Suplementos: [Fuente: NIH — Office of Dietary Supplements], [Fuente: European Food Safety Authority]\n     Interacciones: [Fuente: MedlinePlus — NIH], [Fuente: Drugs.com Interaction Checker]\n     General: [Fuente: Mayo Clinic], [Fuente: Cleveland Clinic], [Fuente: Cochrane Reviews]\n   - NUNCA hagas una afirmación de salud sin su fuente inmediatamente después.\n3. Usá ⚠️ advertencias, ✅ positivo, ❌ evitar.\n4. RESUMEN SEMANAL: secciones: 😴 Sueño / 🥗 Alimentación / 💪 Ejercicio / 💊 Suplementos / ✅ Logros / 🎯 Mejorar / 💡 Recomendaciones (cada una con fuentes).\n5. Al final SIEMPRE aclará: "⚕️ Esta información es orientativa y no reemplaza la consulta con un médico, nutricionista u otro profesional de salud."`;
+      const hist=messages.slice(1).map(m=>({role:m.role,content:m.text}));
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,system:sys,messages:[...hist,{role:"user",content:msg}]})});
+      const d=await res.json();
+      setMessages(prev=>[...prev,{role:"assistant",text:d.content?.[0]?.text||"Sin respuesta."}]);
+    }catch{setMessages(prev=>[...prev,{role:"assistant",text:"Error de conexión. Intentá de nuevo."}]);}
+    finally{setLoading(false);}
+  };
+
+  const sugs=[
+    {l:"📊 Resumen semanal",m:"Generame un resumen semanal completo de mis progresos",color:"#a78bfa"},
+    {l:"😴 Análisis de sueño",m:"¿Cómo está mi calidad de sueño y cómo mejorarlo?",color:"#818cf8"},
+    {l:"🥗 Mi dieta",m:"¿Qué le falta a mi alimentación de esta semana?",color:"#4ade80"},
+  ];
+
+  const hasSupl = data.suplementos.length > 0 || (perfil.patologias||[]).length > 0 || (perfil.medicamentos||[]).length > 0;
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 240px)",minHeight:"380px"}}>
+      {messages.length<=1&&(
+        <div style={{marginBottom:"12px"}}>
+
+          {/* BOTÓN DESTACADO: Análisis de interacciones */}
+          <button onClick={()=>send("Analizá en detalle las posibles interacciones entre todos mis suplementos actuales, mis patologías preexistentes y mis medicamentos crónicos. Para cada combinación indicá el nivel de riesgo, el mecanismo de la interacción y la recomendación.")}
+            style={{
+              width:"100%", marginBottom:"10px",
+              background:"linear-gradient(135deg,rgba(248,113,113,0.2),rgba(251,146,60,0.15))",
+              border:"2px solid rgba(248,113,113,0.6)",
+              borderRadius:"14px", padding:"14px 16px",
+              display:"flex", alignItems:"center", gap:"12px",
+              cursor:"pointer", textAlign:"left", transition:"all 0.2s"
+            }}>
+            <div style={{fontSize:"32px",lineHeight:1}}>⚠️</div>
+            <div>
+              <div style={{color:"#fca5a5",fontWeight:700,fontSize:"14px"}}>Analizar Interacciones</div>
+              <div style={{color:"#f87171",fontSize:"12px",marginTop:"2px"}}>
+                Suplementos × Patologías × Medicamentos
+              </div>
+              {!hasSupl && <div style={{color:"#64748b",fontSize:"11px",marginTop:"3px"}}>💡 Cargá suplementos y patologías en Perfil primero</div>}
+            </div>
+          </button>
+
+          <div style={{color:C.faint,fontSize:"11px",marginBottom:"7px"}}>Otras consultas:</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
+            {sugs.map((s,i)=>(
+              <button key={i} onClick={()=>send(s.m)} style={{
+                background:th==="dark"?`${s.color}11`:`${s.color}18`,
+                border:`1px solid ${s.color}44`,
+                borderRadius:"10px",padding:"10px 8px",color:s.color,
+                fontSize:"11px",cursor:"pointer",textAlign:"left",fontWeight:500,lineHeight:"1.4"
+              }}>{s.l}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:"12px",paddingBottom:"12px"}}>
+        {messages.map((m,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",animation:"fadeIn 0.3s ease"}}>
+            <div style={{maxWidth:"88%",background:m.role==="user"?"linear-gradient(135deg,#a78bfa,#818cf8)":C.surface,border:m.role==="assistant"?`1px solid rgba(167,139,250,0.2)`:"none",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"12px 15px",color:C.text,fontSize:"14px",lineHeight:"1.65",whiteSpace:"pre-wrap"}}>
+              {m.role==="assistant"?renderMsg(m.text):m.text}
+            </div>
+          </div>
+        ))}
+        {loading&&<div style={{display:"flex"}}><div style={{background:C.surface,border:"1px solid rgba(167,139,250,0.2)",borderRadius:"18px 18px 18px 4px",padding:"12px 20px",color:C.muted,fontSize:"14px"}}><span style={{animation:"pulse 1s infinite"}}>Analizando tus datos...</span></div></div>}
+        <div ref={bottomRef}/>
+      </div>
+      <div style={{display:"flex",gap:"10px",paddingTop:"12px",borderTop:`1px solid ${C.border}`}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()}
+          placeholder="Preguntá o pedí tu resumen semanal..."
+          style={{flex:1,background:th==="dark"?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:"14px",padding:"12px 16px",color:C.text,fontSize:"14px",outline:"none"}}/>
+        <button onClick={()=>send()} disabled={loading} style={{background:"linear-gradient(135deg,#a78bfa,#818cf8)",border:"none",borderRadius:"14px",padding:"12px 18px",color:"white",fontWeight:700,cursor:"pointer",fontSize:"16px",opacity:loading?0.5:1}}>↑</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SUMMARY BADGES ───────────────────────────────────────────────
+function SummaryBadges({data,historialSueno,recordatorios,th}){
+  const C=useTheme(th==="dark");
+  const sue=historialSueno[getDayKey()];
+  const total=data.comidas.length+data.ejercicio.length+data.suplementos.length;
+  const act=(recordatorios||[]).filter(r=>r.activo).length;
+  if(total===0&&!sue&&act===0)return null;
+  return(
+    <div style={{display:"flex",gap:"5px",marginBottom:"6px",flexWrap:"wrap"}}>
+      {sue&&<div style={{background:"rgba(129,140,248,0.2)",border:"1px solid rgba(129,140,248,0.4)",borderRadius:"20px",padding:"3px 9px",fontSize:"11px",color:"#a5b4fc"}}>😴 {sue.horas}h</div>}
+      {[["comidas","🥗"],["ejercicio","💪"],["suplementos","💊"]].map(([k,icon])=>
+        data[k].length>0&&<div key={k} style={{background:`${COLORS_DARK[k]}22`,border:`1px solid ${COLORS_DARK[k]}55`,borderRadius:"20px",padding:"3px 9px",fontSize:"11px",color:COLORS_DARK[k]}}>{icon} {data[k].length}</div>
+      )}
+      {act>0&&<div style={{background:"rgba(52,211,153,0.15)",border:"1px solid rgba(52,211,153,0.35)",borderRadius:"20px",padding:"3px 9px",fontSize:"11px",color:"#34d399"}}>🔔 {act}</div>}
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────
+export default function App(){
+  const [locked, setLocked] = useState(true);
+  const [tab,setTab]=useState("perfil");
+  const [darkMode,setDarkMode]=useState(true);
+  const [data,setData]=useState({comidas:[],ejercicio:[],suplementos:[]});
+  const [objetivos,setObjetivos]=useState([]);
+  const [perfil,setPerfil]=useState({patologias:[],medicamentos:[]});
+  const [historialSueno,setHistorialSueno]=useState({});
+  const [historialDiario,setHistorialDiario]=useState({});
+  const [recordatorios,setRecordatorios]=useState([]);
+  const [frecuentes,setFrecuentes]=useState([]);
+  const [iaPreload,setIAPreload]=useState(null);
+  const [showSecMenu,setShowSecMenu]=useState(false);
+
+  const th=darkMode?"dark":"light";
+  const C=useTheme(darkMode);
+
+  useEffect(()=>{
+    const hoy=getDayKey();
+    setHistorialDiario(prev=>({...prev,[hoy]:{comidas:data.comidas,ejercicio:data.ejercicio,suplementos:data.suplementos}}));
+  },[data]);
+
+  // Actualizar frecuentes al agregar items
+  const addEntry=(type,entry)=>{
+    setData(prev=>({...prev,[type]:[...prev[type],entry]}));
+    setFrecuentes(prev=>{
+      const exist=prev.findIndex(f=>f.tab===type&&f.nombre.toLowerCase()===entry.nombre.toLowerCase());
+      if(exist>=0){const n=[...prev];n[exist]={...n[exist],count:(n[exist].count||1)+1};return n.sort((a,b)=>(b.count||1)-(a.count||1));}
+      return[...prev,{tab:type,nombre:entry.nombre,detalle:entry.detalle,count:1}].sort((a,b)=>(b.count||1)-(a.count||1));
+    });
+  };
+  const deleteEntry=(type,id)=>setData(prev=>({...prev,[type]:prev[type].filter(e=>e.id!==id)}));
+  const addObjetivo=obj=>setObjetivos(prev=>[...prev,obj]);
+  const deleteObjetivo=id=>setObjetivos(prev=>prev.filter(o=>o.id!==id));
+  const addPhotoToObjetivo=(oid,foto)=>setObjetivos(prev=>prev.map(o=>o.id===oid?{...o,progreso:[...o.progreso,foto]}:o));
+  const guardarSueno=(dia,reg)=>setHistorialSueno(prev=>({...prev,[dia]:reg}));
+  const addRec=r=>setRecordatorios(prev=>[...prev,r]);
+  const delRec=id=>setRecordatorios(prev=>prev.filter(r=>r.id!==id));
+  const togRec=id=>setRecordatorios(prev=>prev.map(r=>r.id===id?{...r,activo:!r.activo}:r));
+
+  const bgStyle=darkMode
+    ?"linear-gradient(160deg,#0a0f1e 0%,#0f172a 50%,#0d1226 100%)"
+    :"linear-gradient(160deg,#f0f9ff 0%,#f8fafc 50%,#f0fdf4 100%)";
+
+  if (locked) return <LockScreen onUnlock={() => setLocked(false)} darkMode={darkMode} />;
+
+  return(
+    <div style={{minHeight:"100vh",background:bgStyle,fontFamily:"'DM Sans',system-ui,sans-serif",color:C.text,display:"flex",justifyContent:"center"}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        ::-webkit-scrollbar{width:4px;}
+        ::-webkit-scrollbar-track{background:transparent;}
+        ::-webkit-scrollbar-thumb{background:#334155;border-radius:2px;}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+        @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+        input::placeholder,textarea::placeholder{color:#475569;}
+        input,button,select{font-family:'DM Sans',system-ui,sans-serif;}
+        select option{background:#1e293b;}
+      `}</style>
+
+      <div style={{width:"100%",maxWidth:"430px",minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+        {/* Header */}
+        <div style={{padding:"44px 16px 12px",background:darkMode?"linear-gradient(180deg,rgba(10,15,30,0.98) 0%,transparent 100%)":"linear-gradient(180deg,rgba(240,249,255,0.98) 0%,transparent 100%)",position:"sticky",top:0,zIndex:10,backdropFilter:"blur(12px)"}}>
+          <div style={{marginBottom:"6px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontFamily:"'Syne',sans-serif",fontSize:"26px",fontWeight:800,background:"linear-gradient(90deg,#fb923c,#a78bfa,#4ade80)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",display:"inline-block"}}>FitLog</div>
+              <div style={{color:C.faint,fontSize:"12px"}}>{formatDate(new Date())}</div>
+            </div>
+            <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+              {perfil.nombre&&<div style={{color:C.muted,fontSize:"12px",fontWeight:600}}>Hola, {perfil.nombre.split(" ")[0]} 👋</div>}
+              {/* Modo claro/oscuro */}
+              <button onClick={()=>setDarkMode(!darkMode)} title={darkMode?"Modo claro":"Modo oscuro"} style={{
+                background:darkMode?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)",
+                border:`1px solid ${C.border}`,borderRadius:"20px",padding:"6px 10px",
+                color:C.muted,fontSize:"14px",cursor:"pointer"
+              }}>{darkMode?"☀️":"🌙"}</button>
+              {/* Exportar */}
+              <button onClick={()=>exportarPDF(perfil,historialDiario,historialSueno,objetivos)} title="Exportar reporte" style={{
+                background:darkMode?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)",
+                border:`1px solid ${C.border}`,borderRadius:"20px",padding:"6px 10px",
+                color:C.muted,fontSize:"14px",cursor:"pointer"
+              }}>📥</button>
+              {/* Bloquear */}
+              <button onClick={()=>setLocked(true)} title="Bloquear app" style={{
+                background:darkMode?"rgba(255,255,255,0.08)":"rgba(0,0,0,0.06)",
+                border:`1px solid ${C.border}`,borderRadius:"20px",padding:"6px 10px",
+                color:C.muted,fontSize:"14px",cursor:"pointer"
+              }}>🔒</button>
+            </div>
+          </div>
+          <SummaryBadges data={data} historialSueno={historialSueno} recordatorios={recordatorios} th={th}/>
+        </div>
+
+        {/* Content */}
+        <div style={{flex:1,padding:"16px 16px 110px",overflowY:"auto"}}>
+          {tab==="perfil"&&<PerfilSalud perfil={perfil} onChange={setPerfil} th={th}/>}
+          {tab==="sueno"&&<RegistroSueno historialSueno={historialSueno} onGuardar={guardarSueno} th={th}/>}
+          {["comidas","ejercicio","suplementos"].includes(tab)&&(
+            <>
+              <AddForm tab={tab} onAdd={e=>addEntry(tab,e)} frecuentes={frecuentes} th={th}/>
+              {data[tab].length===0?(
+                <div style={{textAlign:"center",color:C.vfaint,paddingTop:"20px"}}>
+                  <div style={{fontSize:"36px",marginBottom:"10px"}}>{tab==="comidas"?"🥗":tab==="ejercicio"?"💪":"💊"}</div>
+                  <div style={{fontSize:"14px"}}>Sin registros hoy</div>
+                </div>
+              ):data[tab].map(entry=>(
+                <EntryCard key={entry.id} entry={entry} color={COLORS_DARK[tab]} onDelete={id=>deleteEntry(tab,id)} onRepeat={e=>addEntry(tab,{...e,id:Date.now(),hora:new Date()})} th={C}/>
+              ))}
+
+              {/* Botón de análisis de interacciones — solo en suplementos */}
+              {tab==="suplementos"&&(
+                <div style={{marginTop:"8px"}}>
+                  <div style={{color:C.faint,fontSize:"11px",marginBottom:"8px",textAlign:"center"}}>— Análisis de seguridad —</div>
+                  <button onClick={()=>{ setIAPreload("Analizá en detalle las posibles interacciones entre todos mis suplementos actuales, mis patologías preexistentes y mis medicamentos crónicos. Para cada combinación indicá el nivel de riesgo, el mecanismo y la recomendación."); setTab("consulta"); }}
+                    style={{
+                      width:"100%",
+                      background:"linear-gradient(135deg,rgba(248,113,113,0.18),rgba(251,146,60,0.12))",
+                      border:"2px solid rgba(248,113,113,0.55)",
+                      borderRadius:"14px", padding:"16px",
+                      display:"flex", alignItems:"center", gap:"14px",
+                      cursor:"pointer", textAlign:"left"
+                    }}>
+                    <div style={{fontSize:"36px",lineHeight:1}}>⚠️</div>
+                    <div>
+                      <div style={{color:"#fca5a5",fontWeight:700,fontSize:"15px"}}>Analizar Interacciones con IA</div>
+                      <div style={{color:"#f87171",fontSize:"12px",marginTop:"3px"}}>Revisá si tus suplementos son seguros con tus patologías y medicamentos</div>
+                    </div>
+                    <div style={{marginLeft:"auto",color:"#f87171",fontSize:"20px"}}>→</div>
+                  </button>
+
+                  {(perfil.patologias||[]).length===0&&(perfil.medicamentos||[]).length===0&&(
+                    <div style={{marginTop:"8px",background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:"10px",padding:"10px 12px",fontSize:"12px",color:"#fbbf24"}}>
+                      💡 Para un análisis completo, cargá tus patologías y medicamentos en la sección <strong>👤 Perfil</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          {tab==="objetivos"&&<Objetivos objetivos={objetivos} onAdd={addObjetivo} onDelete={deleteObjetivo} onAddPhoto={addPhotoToObjetivo} th={th}/>}
+          {tab==="recordatorios"&&<Recordatorios recordatorios={recordatorios} onAdd={addRec} onDelete={delRec} onToggle={togRec} th={th}/>}
+          {tab==="graficos"&&<Graficos historialDiario={historialDiario} historialSueno={historialSueno} perfil={perfil} th={th}/>}
+          {tab==="consulta"&&<ChatIA data={data} perfil={perfil} historialSueno={historialSueno} historialDiario={historialDiario} th={th} preload={iaPreload} onClearPreload={()=>setIAPreload(null)}/>}
+        </div>
+
+        {/* ── BOTTOM NAV BAR ── */}
+        <div style={{
+          position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+          width:"100%", maxWidth:"430px",
+          background:darkMode?"rgba(10,15,30,0.97)":"rgba(248,250,252,0.97)",
+          backdropFilter:"blur(16px)",
+          borderTop:`1px solid ${C.border}`,
+          paddingBottom:"env(safe-area-inset-bottom,8px)",
+          zIndex:20
+        }}>
+          {/* Main nav — 5 primary tabs */}
+          {(()=>{
+            const mainTabs=[
+              {id:"comidas",   icon:"🥗", label:"Comidas"},
+              {id:"ejercicio", icon:"💪", label:"Ejercicio"},
+              {id:"consulta",  icon:"🤖", label:"IA"},
+              {id:"sueno",     icon:"😴", label:"Sueño"},
+              {id:"mas",       icon:"☰",  label:"Más"},
+            ];
+            return(
+              <div style={{display:"flex",alignItems:"stretch"}}>
+                {mainTabs.map(t=>{
+                  const isActive = t.id!=="mas" ? tab===t.id : ["perfil","suplementos","objetivos","recordatorios","graficos"].includes(tab);
+                  const color = t.id==="mas" ? (isActive?"#a78bfa":C.faint) : (COLORS_DARK[t.id]||"#a78bfa");
+                  return(
+                    <button key={t.id} onClick={()=>{ if(t.id==="mas") setShowSecMenu(p=>!p); else { setTab(t.id); setShowSecMenu(false); } }}
+                      style={{
+                        flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+                        padding:"10px 4px 8px",
+                        background:"none", border:"none", cursor:"pointer",
+                        position:"relative"
+                      }}>
+                      {/* Active indicator */}
+                      {isActive&&t.id!=="mas"&&(
+                        <div style={{position:"absolute",top:0,left:"25%",right:"25%",height:"3px",background:color,borderRadius:"0 0 3px 3px"}}/>
+                      )}
+                      <div style={{
+                        fontSize:"24px", lineHeight:1, marginBottom:"4px",
+                        filter: isActive ? "none" : "grayscale(30%)",
+                        opacity: isActive ? 1 : 0.55,
+                        transform: isActive ? "scale(1.12)" : "scale(1)",
+                        transition:"all 0.2s"
+                      }}>{t.icon}</div>
+                      <div style={{
+                        fontSize:"11px", fontWeight: isActive?700:400,
+                        color: isActive ? color : C.faint,
+                        transition:"all 0.2s"
+                      }}>{t.label}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* Secondary menu drawer */}
+          {showSecMenu&&(
+            <div style={{
+              borderTop:`1px solid ${C.border}`,
+              padding:"12px 12px 6px",
+              display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"8px"
+            }}>
+              {[
+                {id:"perfil",       icon:"👤", label:"Perfil",      color:"#fb923c"},
+                {id:"suplementos",  icon:"💊", label:"Suplementos", color:"#f472b6"},
+                {id:"objetivos",    icon:"🎯", label:"Objetivos",   color:"#facc15"},
+                {id:"recordatorios",icon:"🔔", label:"Alertas",     color:"#34d399"},
+                {id:"graficos",     icon:"📈", label:"Gráficos",    color:"#e879f9"},
+              ].map(t=>(
+                <button key={t.id} onClick={()=>{setTab(t.id);setShowSecMenu(false);}} style={{
+                  display:"flex", flexDirection:"column", alignItems:"center",
+                  padding:"10px 6px",
+                  background: tab===t.id ? `${t.color}22` : darkMode?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.04)",
+                  border:`1.5px solid ${tab===t.id?t.color+"99":C.border}`,
+                  borderRadius:"14px", cursor:"pointer", transition:"all 0.15s"
+                }}>
+                  <div style={{fontSize:"22px",marginBottom:"4px"}}>{t.icon}</div>
+                  <div style={{fontSize:"11px",color:tab===t.id?t.color:C.muted,fontWeight:tab===t.id?700:400}}>{t.label}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+
+// Mount
+const container = document.getElementById('root');
+const root = ReactDOM.createRoot(container);
+root.render(React.createElement(App));
+  </script>
+</body>
+</html>
